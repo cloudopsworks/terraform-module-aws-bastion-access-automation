@@ -94,6 +94,28 @@ resource "aws_iam_role_policy" "allowed_secrets" {
   policy = data.aws_iam_policy_document.allowed_secrets[0].json
 }
 
+data "aws_iam_policy_document" "allowed_ssm_parameterstore" {
+  statement {
+    sid    = "ReadSSMParameters"
+    effect = "Allow"
+    actions = [
+      "ssm:GetParameter",
+      "ssm:GetParameters",
+      "ssm:GetParametersByPath",
+      "ssm:DescribeParameters"
+    ]
+    resources = [
+      var.settings.bastion_ssm_parameter
+    ]
+  }
+}
+
+resource "aws_iam_role_policy" "alloed_ssm_parameterstore" {
+  name   = "${local.function_name_short}-allow-ssm-parameterstore-policy"
+  role   = aws_iam_role.default_lambda_function.id
+  policy = data.aws_iam_policy_document.allowed_ssm_parameterstore.json
+}
+
 data "aws_iam_policy_document" "allowed_kms" {
   count = length(try(var.settings.allowed_kms, [])) > 0 ? 1 : 0
   statement {
