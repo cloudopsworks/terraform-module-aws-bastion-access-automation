@@ -94,6 +94,10 @@ resource "aws_iam_role_policy" "allowed_secrets" {
   policy = data.aws_iam_policy_document.allowed_secrets[0].json
 }
 
+data "aws_ssm_parameter" "bastion_ssm_parameter" {
+  name = var.settings.bastion_ssm_parameter
+}
+
 data "aws_iam_policy_document" "allowed_ssm_parameterstore" {
   statement {
     sid    = "ReadSSMParameters"
@@ -105,12 +109,12 @@ data "aws_iam_policy_document" "allowed_ssm_parameterstore" {
       "ssm:DescribeParameters"
     ]
     resources = [
-      var.settings.bastion_ssm_parameter
+      data.aws_ssm_parameter.bastion_ssm_parameter.arn
     ]
   }
 }
 
-resource "aws_iam_role_policy" "alloed_ssm_parameterstore" {
+resource "aws_iam_role_policy" "allowed_ssm_parameterstore" {
   name   = "${local.function_name_short}-allow-ssm-parameterstore-policy"
   role   = aws_iam_role.default_lambda_function.id
   policy = data.aws_iam_policy_document.allowed_ssm_parameterstore.json
