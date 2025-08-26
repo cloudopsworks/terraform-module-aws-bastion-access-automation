@@ -36,7 +36,7 @@ resource "archive_file" "lambda_code" {
 
 resource "aws_lambda_function" "this" {
   function_name    = local.function_name
-  description      = try(var.settings.description, "Bastion Access Control Lambda - ${var.settings.type}")
+  description      = try(var.settings.description, "Bastion Access Control Lambda - Region: ${data.aws_region.current.id}")
   role             = aws_iam_role.default_lambda_function.arn
   handler          = "lambda_function.lambda_handler"
   runtime          = "python3.12"
