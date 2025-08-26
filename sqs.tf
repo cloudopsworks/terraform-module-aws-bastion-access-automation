@@ -14,11 +14,10 @@ resource "aws_sqs_queue" "this" {
 }
 
 resource "aws_lambda_event_source_mapping" "this" {
-  event_source_arn  = aws_sqs_queue.this.arn
-  function_name     = aws_lambda_function.this.arn
-  starting_position = "LATEST"
-  batch_size        = 5
-  enabled           = true
+  event_source_arn = aws_sqs_queue.this.arn
+  function_name    = aws_lambda_function.this.arn
+  batch_size       = 5
+  enabled          = true
   scaling_config {
     maximum_concurrency = 10
   }
