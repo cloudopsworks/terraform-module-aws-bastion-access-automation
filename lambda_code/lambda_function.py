@@ -1,0 +1,271 @@
+##
+# (c) 2021-2025
+#     Cloud Ops Works LLC - https://cloudops.works/
+#     Find us on:
+#       GitHub: https://github.com/cloudopsworks
+#       WebSite: https://cloudops.works
+#     Distributed Under Apache v2.0 License
+#
+
+import boto3
+import os
+import json
+import logging
+
+logger = logging.getLogger()
+logger.setLevel(os.environ.get('LOG_LEVEL', logging.INFO))
+
+def lambda_handler(event, context):
+    """
+    Lambda function to handle Bastion Access Automation requests.
+
+    Events are received from SQS and processed to manage user access.
+    Events from EventBridge to perform shutdown Bastion Host after a timeout and for access removal on SG and ACLs.
+    It will manage the following upon event:
+    - Start Bastion Host if not running, bastion host information is configured in SSM Parameter Store
+    - Allow user access via Security Group modification for a limited time, will modify ACLs if configured
+    - Remove user access via Security Group modification and ACLs upon event from EventBridge
+    """
+    logger.debug(f"Received event: {json.dumps(event)}")
+
+    # Process SQS events
+    if 'Records' in event:
+        for record in event['Records']:
+            try:
+                message = json.loads(record['body'])
+                process_access_request(context, message)
+            except Exception as e:
+                logger.error(f"Error processing record: {e}")
+
+    # Process EventBridge events
+    elif 'detail-type' in event:
+        try:
+            process_eventbridge_event(context, event)
+        except Exception as e:
+            logger.error(f"Error processing EventBridge event: {e}")
+
+    else:
+        logger.warning("Received unknown event format.")
+
+    return {
+        'statusCode': 200,
+        'body': json.dumps('Processing complete')
+    }
+
+
+def process_access_request(context, message):
+    """
+    Process access request messages from SQS.
+    message will contain following fields:
+    - ip_address: The IP address of the user requesting access
+    - service: ssh or rdp
+    bastion host information is configured in SSM Parameter Store
+    """
+    ip_address = message.get('ip_address')
+    service = message.get('service')
+
+    if not ip_address or not service:
+        logger.error("Invalid access request message format.")
+        return
+
+    logger.info(f"Processing access request for IP: {ip_address}, Service: {service}")
+
+    # Retrieve Bastion Host details from SSM Parameter Store
+    ssm = boto3.client('ssm')
+    ec2 = boto3.client('ec2')
+    try:
+        bastion_instance_id = ssm.get_parameter(Name=os.environ['BASTION_SSM_PARAMETER'])['Parameter']['Value']
+    except Exception as e:
+        logger.error(f"Error retrieving Bastion Host details from SSM: {e}")
+        return
+
+    security_group_id = os.environ['ACCESS_SG_ID']
+    vpc_acl_id = os.environ['ACCESS_ACL_ID']
+
+    # Modify Security Group to allow access ensuring no duplicate rules
+    try:
+        existing_permissions = ec2.describe_security_groups(GroupIds=[security_group_id])['SecurityGroups'][0]['IpPermissions']
+        port = 22 if service.lower() == 'ssh' else 3389
+        ip_permission = {
+            'IpProtocol': 'tcp',
+            'FromPort': port,
+            'ToPort': port,
+            'IpRanges': [{'CidrIp': f'{ip_address}/32'}]
+        }
+        if ip_permission not in existing_permissions:
+            logger.info(f"Adding access rule to Security Group {security_group_id} for IP {ip_address}")
+            ec2.authorize_security_group_ingress(
+                GroupId=security_group_id,
+                IpPermissions=[ip_permission]
+            )
+        else:
+            logger.info(f"Access rule for IP {ip_address} already exists in Security Group {security_group_id}")
+    except Exception as e:
+        logger.error(f"Error modifying Security Group: {e}")
+        return
+
+    # Modify Network ACL to allow access, if configured ensure no duplicate rules and use reserved rule numbers from 1400 to 1499, vpc_acl_id is required precondition
+    try:
+        nacl = ec2.describe_network_acls(NetworkAclIds=[vpc_acl_id])['NetworkAcls'][0]
+        port = 22 if service.lower() == 'ssh' else 3389
+        # rule number between 1400 and 1499 to avoid conflicts check existing rules
+        # scrub existing rules to find an available rule number and if currently cidr block exists within the range
+        existing_rule_numbers = {entry['RuleNumber'] for entry in nacl['Entries']}
+        existing_cidrs = {entry['CidrBlock'] for entry in nacl['Entries'] if entry['RuleAction'] == 'allow' and entry['Protocol'] == '6' and entry['PortRange']['From'] == port}
+        rule_number = None
+        for rn in range(1400, 1500):
+            if rn not in existing_rule_numbers:
+                rule_number = rn
+                break
+        if not rule_number:
+            logger.error("No available rule number in the reserved range 1400-1499 for Network ACL.")
+            return
+        if f'{ip_address}/32' not in existing_cidrs:
+            logger.info(f"Adding access rule to Network ACL {vpc_acl_id} for IP {ip_address}")
+            ec2.create_network_acl_entry(
+                NetworkAclId=vpc_acl_id,
+                RuleNumber=rule_number,
+                Protocol='6',
+                RuleAction='allow',
+                Egress=False,
+                CidrBlock=f'{ip_address}/32',
+                PortRange={
+                    'From': port,
+                    'To': port
+                }
+            )
+        else:
+            logger.info(f"Access rule for IP {ip_address} already exists in Network ACL {vpc_acl_id}")
+    except Exception as e:
+        logger.error(f"Error modifying Network ACL: {e}")
+        return
+
+    logger.info(f"Access granted to IP {ip_address} for service {service}.")
+
+    # Start Bastion Host if not running
+    try:
+        instance_status = ec2.describe_instance_status(InstanceIds=[bastion_instance_id])
+        if not instance_status['InstanceStatuses']:
+            logger.info(f"Starting Bastion Host: {bastion_instance_id}")
+            ec2.start_instances(InstanceIds=[bastion_instance_id])
+            waiter = ec2.get_waiter('instance_running')
+            waiter.wait(InstanceIds=[bastion_instance_id])
+            logger.info(f"Bastion Host {bastion_instance_id} is now running.")
+        else:
+            logger.info(f"Bastion Host {bastion_instance_id} is already running.")
+    except Exception as e:
+        logger.error(f"Error starting Bastion Host: {e}")
+        return
+
+    # Save a single EventBridge Scheduler to remove access after timeout of 8 hours
+    # as part of the event payload include ip_address, service and acl rule_number
+    # the event will be ephemeral and auto delete after execution
+    try:
+        scheduler = boto3.client('scheduler')
+        lease_period = int(os.environ.get('ACCESS_LEASE_HOURS', '8'))
+        schedule_name = f"remove-access-{ip_address.replace('.', '-')}-{service}"
+        schedule_expression = f"at({(boto3.utils.parse_timestamp(boto3.utils.get_service_module('scheduler').meta.events._unique_id).replace(tzinfo=None) + boto3.utils.timedelta(hours=lease_period)).strftime('%Y-%m-%dT%H:%M:%S')})"
+        target = {
+            'Arn': context.lambda_function_arn,
+            'Input': json.dumps({
+                'detail-type': 'BastionAccessRemoval',
+                'detail': {
+                    'action': 'remove_access',
+                    'ip_address': ip_address,
+                    'service': service,
+                    'rule_number': rule_number
+                }
+            })
+        }
+        logger.info(f"Creating EventBridge Scheduler {schedule_name} to remove access after ${lease_period} hours.")
+        scheduler.create_schedule(
+            Name=schedule_name,
+            ScheduleExpression=schedule_expression,
+            State='ENABLED',
+            FlexibleTimeWindow={'Mode': 'OFF'},
+            Target=target,
+            Description='Schedule to remove Bastion access after timeout',
+            ActionAfterCompletion='DELETE'
+        )
+        logger.info(f"EventBridge Scheduler {schedule_name} created successfully.")
+    except Exception as e:
+        logger.error(f"Error creating EventBridge Scheduler: {e}")
+        return
+
+def process_eventbridge_event(context, event):
+    """
+    Process EventBridge events for access removal and Bastion Host shutdown.
+    EventBridge events will contain an 'action' field to determine the type of event:
+    - action: 'remove_access' or 'shutdown_bastion'
+    """
+    action = event.get('detail', {}).get('action')
+
+    if action == 'remove_access':
+        ip_address = event['detail'].get('ip_address')
+        service = event['detail'].get('service')
+        rule_number = event['detail'].get('rule_number')
+
+        if not ip_address or not service or rule_number is None:
+            logger.error("Invalid remove access event format.")
+            return
+
+        logger.info(f"Processing access removal for IP: {ip_address}, Service: {service}")
+
+        ec2 = boto3.client('ec2')
+        security_group_id = os.environ['ACCESS_SG_ID']
+        vpc_acl_id = os.environ['ACCESS_ACL_ID']
+
+        # Remove access from Security Group
+        try:
+            port = 22 if service.lower() == 'ssh' else 3389
+            ip_permission = {
+                'IpProtocol': 'tcp',
+                'FromPort': port,
+                'ToPort': port,
+                'IpRanges': [{'CidrIp': f'{ip_address}/32'}]
+            }
+            logger.info(f"Removing access rule from Security Group {security_group_id} for IP {ip_address}")
+            ec2.revoke_security_group_ingress(
+                GroupId=security_group_id,
+                IpPermissions=[ip_permission]
+            )
+        except Exception as e:
+            logger.error(f"Error removing access from Security Group: {e}")
+
+        # Remove access from Network ACL, if configured
+        try:
+            logger.info(f"Removing access rule from Network ACL {vpc_acl_id} for IP {ip_address}")
+            ec2.delete_network_acl_entry(
+                NetworkAclId=vpc_acl_id,
+                RuleNumber=rule_number,
+                Egress=False
+            )
+        except Exception as e:
+            logger.error(f"Error removing access from Network ACL: {e}")
+
+    if action == 'shutdown_bastion':
+        logger.info("Processing Bastion Host shutdown event.")
+
+        # Retrieve Bastion Host details from SSM Parameter Store
+        ssm = boto3.client('ssm')
+        ec2 = boto3.client('ec2')
+        try:
+            bastion_instance_id = ssm.get_parameter(Name=os.environ['BASTION_SSM_PARAMETER'])['Parameter']['Value']
+        except Exception as e:
+            logger.error(f"Error retrieving Bastion Host details from SSM: {e}")
+            return
+
+        # Stop Bastion Host if running
+        try:
+            instance_status = ec2.describe_instance_status(InstanceIds=[bastion_instance_id])
+            if instance_status['InstanceStatuses']:
+                logger.info(f"Stopping Bastion Host: {bastion_instance_id}")
+                ec2.stop_instances(InstanceIds=[bastion_instance_id])
+                waiter = ec2.get_waiter('instance_stopped')
+                waiter.wait(InstanceIds=[bastion_instance_id])
+                logger.info(f"Bastion Host {bastion_instance_id} is now stopped.")
+            else:
+                logger.info(f"Bastion Host {bastion_instance_id} is already stopped.")
+        except Exception as e:
+            logger.error(f"Error stopping Bastion Host: {e}")
+            return
