@@ -62,29 +62,6 @@ resource "aws_iam_role_policy" "lambda_function_logs" {
 }
 
 
-data "aws_iam_policy_document" "vpc_ec2" {
-  count   = try(var.vpc.enabled, false) ? 1 : 0
-  version = "2012-10-17"
-  statement {
-    effect = "Allow"
-    actions = [
-      "ec2:CreateNetworkInterface",
-      "ec2:DescribeNetworkInterfaces",
-      "ec2:DescribeSubnets",
-      "ec2:DeleteNetworkInterface",
-      "ec2:AssignPrivateIpAddresses",
-      "ec2:UnassignPrivateIpAddresses",
-    ]
-    resources = ["*"]
-  }
-}
-
-resource "aws_iam_role_policy" "vpc_ec2" {
-  count  = try(var.vpc.enabled, false) ? 1 : 0
-  name   = "${local.function_name_short}-vpc-policy"
-  role   = aws_iam_role.default_lambda_function.name
-  policy = data.aws_iam_policy_document.vpc_ec2[0].json
-}
 
 data "aws_iam_policy_document" "allowed_secrets" {
   count = length(try(var.settings.allowed_secrets, [])) > 0 ? 1 : 0

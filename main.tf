@@ -8,8 +8,8 @@
 #
 
 locals {
-  function_name       = "secrets-rotation-${var.settings.type}-${local.system_name}"
-  function_name_short = "secrets-rotation-${var.settings.type}-${local.system_name_short}"
+  function_name       = "access-automation-${local.system_name}"
+  function_name_short = "access-automation-${local.system_name_short}"
   variables = concat(try(var.settings.environment.variables, []),
     [
       {
@@ -61,6 +61,6 @@ resource "aws_lambda_function" "this" {
   tags = local.all_tags
   depends_on = [
     aws_cloudwatch_log_group.logs,
-    terraform_data.archive_file
+    archive_file.lambda_code
   ]
 }
