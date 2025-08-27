@@ -53,6 +53,30 @@ def lambda_handler(event, context):
     }
 
 
+def _permission_exists(target_permission, existing_permissions):
+    """
+    Check if a target permission already exists in the list of existing permissions.
+    Compares only the essential fields: IpProtocol, FromPort, ToPort, and CIDR blocks.
+    """
+    target_protocol = target_permission.get('IpProtocol')
+    target_from_port = target_permission.get('FromPort')
+    target_to_port = target_permission.get('ToPort')
+    target_cidrs = {ip_range.get('CidrIp') for ip_range in target_permission.get('IpRanges', [])}
+
+    for existing_perm in existing_permissions:
+        # Check if protocol and ports match
+        if (existing_perm.get('IpProtocol') == target_protocol and
+                existing_perm.get('FromPort') == target_from_port and
+                existing_perm.get('ToPort') == target_to_port):
+
+            # Check if any of the target CIDR blocks already exist
+            existing_cidrs = {ip_range.get('CidrIp') for ip_range in existing_perm.get('IpRanges', [])}
+            if target_cidrs.intersection(existing_cidrs):
+                return True
+
+    return False
+
+
 def process_access_request(context, message):
     """
     Process access request messages from SQS.
@@ -92,7 +116,7 @@ def process_access_request(context, message):
             'ToPort': port,
             'IpRanges': [{'CidrIp': f'{ip_address}/32'}]
         }
-        if ip_permission not in existing_permissions:
+        if not _permission_exists(ip_permission, existing_permissions):
             logger.info(f"Adding access rule to Security Group {security_group_id} for IP {ip_address}")
             ec2.authorize_security_group_ingress(
                 GroupId=security_group_id,
