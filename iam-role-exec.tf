@@ -38,12 +38,12 @@ data "aws_iam_policy_document" "lambda_exec" {
 resource "aws_iam_role" "lambda_exec" {
   name               = "${local.function_name_short}-exec-role"
   path               = "/"
-  assume_role_policy = data.aws_iam_policy_document.lambda_assume_role[0].json
+  assume_role_policy = data.aws_iam_policy_document.lambda_assume_role.json
   tags               = local.all_tags
 }
 
 resource "aws_iam_role_policy" "lambda_exec" {
   name   = "${local.function_name_short}-exec-policy"
   policy = data.aws_iam_policy_document.lambda_exec.json
-  role   = aws_iam_role.lambda_exec[0].id
+  role   = aws_iam_role.lambda_exec.id
 }
