@@ -10,7 +10,7 @@
 locals {
   function_name       = "access-automation-${local.system_name}"
   function_name_short = "access-automation-${local.system_name_short}"
-  variables = compact(concat(try(var.settings.environment.variables, []),
+  variables = concat(try(var.settings.environment.variables, []),
     [
       {
         name  = "ACCESS_SG_ID"
@@ -35,7 +35,7 @@ locals {
         value = var.settings.max_lease_hours
       }
     ] : []
-  ))
+  )
 }
 
 resource "archive_file" "lambda_code" {
