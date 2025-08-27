@@ -138,7 +138,8 @@ def process_access_request(context, message):
         existing_rule_numbers = {entry['RuleNumber'] for entry in nacl['Entries']}
         existing_cidrs = {entry['CidrBlock'] for entry in nacl['Entries'] if entry['RuleAction'] == 'allow' and entry['Protocol'] == '6' and entry['PortRange']['From'] == port}
         rule_number = None
-        for rn in range(1400, 1500):
+        permanent_access = False
+        for rn in range(9400, 9500):
             if rn not in existing_rule_numbers:
                 rule_number = rn
                 break
@@ -160,7 +161,16 @@ def process_access_request(context, message):
                 }
             )
         else:
-            logger.info(f"Access rule for IP {ip_address} already exists in Network ACL {vpc_acl_id}")
+            logger.info(f"Access rule for IP {ip_address} already exists in Network ACL {vpc_acl_id}, Retrieving existing rule number.")
+            for entry in nacl['Entries']:
+                if (entry['RuleAction'] == 'allow' and entry['Protocol'] == '6' and
+                        entry['PortRange']['From'] == port and entry['CidrBlock'] == f'{ip_address}/32'):
+                    rule_number = entry['RuleNumber']
+                    if rule_number < 9400 or rule_number > 9499:
+                        logger.warning(f"Existing rule number {rule_number} for IP {ip_address} is outside the reserved range 1400-1499. Access is Permanent or Consider manual cleanup.")
+                        permanent_access = True
+                    logger.info(f"Found existing rule number {rule_number} for IP {ip_address} in Network ACL {vpc_acl_id}.")
+                    break
     except Exception as e:
         logger.error(f"Error modifying Network ACL: {e}")
         return
@@ -186,36 +196,39 @@ def process_access_request(context, message):
     # as part of the event payload include ip_address, service and acl rule_number
     # the event will be ephemeral and auto delete after execution
     try:
-        scheduler = boto3.client('scheduler')
-        lease_period = int(os.environ.get('ACCESS_LEASE_HOURS', '8'))
-        schedule_name = f"remove-access-{ip_address.replace('.', '-')}-{service}"
-        # calculate lease end time from currenti time plus lease period in hours and convert to format required by EventBridge Scheduler
-        lease_end_time = (datetime.now(timezone.utc) + timedelta(hours=lease_period)).strftime('%Y-%m-%dT%H:%M:%S')
-        schedule_expression = f"at({lease_end_time})"
-        target = {
-            'Arn': context.invoked_function_arn,
-            'RoleArn': os.environ['SCHEDULER_ROLE_ARN'],  # IAM Role ARN with permissions to invoke this Lambda
-            'Input': json.dumps({
-                'detail-type': 'BastionAccessRemoval',
-                'detail': {
-                    'action': 'remove_access',
-                    'ip_address': ip_address,
-                    'service': service,
-                    'rule_number': rule_number
-                }
-            })
-        }
-        logger.info(f"Creating EventBridge Scheduler {schedule_name} to remove access after ${lease_period} hours.")
-        scheduler.create_schedule(
-            Name=schedule_name,
-            ScheduleExpression=schedule_expression,
-            State='ENABLED',
-            FlexibleTimeWindow={'Mode': 'OFF'},
-            Target=target,
-            Description='Schedule to remove Bastion access after timeout',
-            ActionAfterCompletion='DELETE'
-        )
-        logger.info(f"EventBridge Scheduler {schedule_name} created successfully.")
+        if not permanent_access:
+            scheduler = boto3.client('scheduler')
+            lease_period = int(os.environ.get('ACCESS_LEASE_HOURS', '8'))
+            schedule_name = f"remove-access-{ip_address.replace('.', '-')}-{service}"
+            # calculate lease end time from currenti time plus lease period in hours and convert to format required by EventBridge Scheduler
+            lease_end_time = (datetime.now(timezone.utc) + timedelta(hours=lease_period)).strftime('%Y-%m-%dT%H:%M:%S')
+            schedule_expression = f"at({lease_end_time})"
+            target = {
+                'Arn': context.invoked_function_arn,
+                'RoleArn': os.environ['SCHEDULER_ROLE_ARN'],  # IAM Role ARN with permissions to invoke this Lambda
+                'Input': json.dumps({
+                    'detail-type': 'BastionAccessRemoval',
+                    'detail': {
+                        'action': 'remove_access',
+                        'ip_address': ip_address,
+                        'service': service,
+                        'rule_number': rule_number
+                    }
+                })
+            }
+            logger.info(f"Creating EventBridge Scheduler {schedule_name} to remove access after ${lease_period} hours.")
+            scheduler.create_schedule(
+                Name=schedule_name,
+                ScheduleExpression=schedule_expression,
+                State='ENABLED',
+                FlexibleTimeWindow={'Mode': 'OFF'},
+                Target=target,
+                Description='Schedule to remove Bastion access after timeout',
+                ActionAfterCompletion='DELETE'
+            )
+            logger.info(f"EventBridge Scheduler {schedule_name} created successfully.")
+        else:
+            logger.info("Permanent access detected, skipping EventBridge Scheduler creation.")
     except Exception as e:
         logger.error(f"Error creating EventBridge Scheduler: {e}")
         return
