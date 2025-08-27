@@ -193,7 +193,7 @@ def process_access_request(context, message):
         lease_end_time = (datetime.now(timezone.utc) + timedelta(hours=lease_period)).strftime('%Y-%m-%dT%H:%M:%S')
         schedule_expression = f"at({lease_end_time})"
         target = {
-            'Arn': context.lambda_function_arn,
+            'Arn': context.invoked_function_arn,
             'Input': json.dumps({
                 'detail-type': 'BastionAccessRemoval',
                 'detail': {
