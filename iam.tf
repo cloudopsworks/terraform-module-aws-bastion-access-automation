@@ -112,6 +112,16 @@ data "aws_iam_policy_document" "allowed_ssm_parameterstore" {
       data.aws_ssm_parameter.bastion_ssm_parameter.arn
     ]
   }
+  # support ssm describe_instance_information && instance_registered
+  statement {
+    sid = "ReadSSMEC2Registration"
+    actions = [
+      "ssm:DescribeInstanceInformation",
+    ]
+    resources = [
+      "*"
+    ]
+  }
 }
 
 resource "aws_iam_role_policy" "allowed_ssm_parameterstore" {

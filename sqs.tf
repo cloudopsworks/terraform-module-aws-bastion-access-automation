@@ -8,20 +8,20 @@
 #
 
 locals {
-  sqs_queue_name = "${local.function_name}-request-queue"
+  sqs_queue_name      = "${local.function_name}-request-queue"
   response_queue_name = "${local.function_name}-response-queue"
 }
 resource "aws_sqs_queue" "this" {
   name                       = local.sqs_queue_name
   sqs_managed_sse_enabled    = true
-  visibility_timeout_seconds = try(var.settings.timeout, 60) + 30
+  visibility_timeout_seconds = try(var.settings.timeout, 120) + 30
   tags                       = local.all_tags
 }
 
 resource "aws_sqs_queue" "response" {
   name                       = local.response_queue_name
   sqs_managed_sse_enabled    = true
-  visibility_timeout_seconds = try(var.settings.timeout, 60) + 30
+  visibility_timeout_seconds = try(var.settings.timeout, 120) + 30
   tags                       = local.all_tags
 }
 
