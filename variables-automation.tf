@@ -12,6 +12,7 @@
 #   access_security_group_id: "sg-xxxxxxxx" # Required - Security Group ID for access
 #   access_acl_id: "acl-xxxxxxxx"   # Required - Network ACL ID for
 #   bastion_ssm_parameter: "/path/to/ssm/parameter" # Required - SSM Parameter for the bastion host
+#   max_lease_hours: 8            # Optional - Maximum lease hours for access, defaults to 8 hours
 #   environment:
 #     variables:
 #       KEY: "value"                 # Optional - Environment variables for the Lambda function
