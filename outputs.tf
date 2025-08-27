@@ -45,3 +45,19 @@ output "sqs_response_queue_url" {
 output "sqs_response_queue_arn" {
   value = aws_sqs_queue.response.arn
 }
+
+output "ssm_parameter_sqs_request_queue" {
+  value = aws_ssm_parameter.sqs_queue_url.name
+}
+
+output "ssm_parameter_sqs_request_queue_arn" {
+  value = aws_ssm_parameter.sqs_queue_url.arn
+}
+
+output "ssm_parameter_sqs_response_queue" {
+  value = aws_ssm_parameter.sqs_response_queue_url.name
+}
+
+output "ssm_parameter_sqs_response_queue_arn" {
+  value = aws_ssm_parameter.sqs_response_queue_url.arn
+}
