@@ -128,6 +128,7 @@ data "aws_iam_policy_document" "allowed_sqs_queues" {
       "sqs:SendMessage",
       "sqs:ReceiveMessage",
       "sqs:DeleteMessage",
+      "sqs:GetQueueAttributes",
     ]
     resources = [
       "arn:aws:sqs:${data.aws_region.current.id}:${data.aws_caller_identity.current.account_id}:${local.sqs_queue_name}"

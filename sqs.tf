@@ -26,3 +26,11 @@ resource "aws_lambda_event_source_mapping" "this" {
   }
   tags = local.all_tags
 }
+
+resource "aws_ssm_parameter" "sqs_queue_url" {
+  name        = "/cloudopsworks/tronador/access-automation/sqs-queue"
+  description = "Tronador Access Automation SQS Queue URL - ${local.system_name}"
+  type        = "String"
+  value       = aws_sqs_queue.this.url
+  tags        = local.all_tags
+}
