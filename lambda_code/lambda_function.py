@@ -197,6 +197,21 @@ def process_access_request(context, message: dict):
         logger.error(f"Error starting Bastion Host: {e}")
         return
 
+    # Wait until the instance is fully registered in SSM before proceeding, timeout after 50 seconds
+    try:
+        ssm_client = boto3.client('ssm')
+        logger.info(f"Waiting for Bastion Host {bastion_instance_id} to be registered in SSM.")
+        waiter = ssm_client.get_waiter('instance_registered')
+        waiter.wait(InstanceIds=[bastion_instance_id], WaiterConfig={'Delay': 5, 'MaxAttempts': 10})
+        ssm_instance_id = ssm_client.describe_instance_information(Filters=[{'Key': 'InstanceIds', 'Values': [bastion_instance_id]}])
+        if ssm_instance_id['InstanceInformationList']:
+            logger.info(f"Bastion Host {bastion_instance_id} is now registered in SSM.")
+        else:
+            logger.warning(f"Bastion Host {bastion_instance_id} is not registered in SSM after waiting.")
+    except Exception as e:
+        logger.error(f"Error waiting for Bastion Host to register in SSM: {e}")
+        return
+
     # Save a single EventBridge Scheduler to remove access after timeout of 8 hours
     # as part of the event payload include ip_address, service and acl rule_number
     # the event will be ephemeral and auto delete after execution
