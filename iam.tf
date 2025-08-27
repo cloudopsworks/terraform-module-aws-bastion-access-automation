@@ -168,6 +168,61 @@ resource "aws_iam_role_policy" "allowed_kms" {
   policy = data.aws_iam_policy_document.allowed_kms[0].json
 }
 
+# Policy to allow Lambda Function to operate with following boto3 ec2 functions:
+# - describe_security_groups
+# - describe_network_acls
+# - authorize_security_group_ingress
+# - create_network_acl_entry
+# - describe_instance_status
+# - start_instances
+# - get_waiter
+data "aws_iam_policy_document" "vpc_ec2" {
+  version = "2012-10-17"
+  statement {
+    sid    = "EC2Permissions"
+    effect = "Allow"
+    actions = [
+      "ec2:DescribeSecurityGroups",
+      "ec2:DescribeNetworkAcls",
+      "ec2:RunInstances",
+      "ec2:CreateNetworkAclEntry",
+      "ec2:DeleteNetworkAclEntry",
+      "ec2:AuthorizeSecurityGroupIngress",
+      "ec2:RevokeSecurityGroupIngress",
+    ]
+    resources = ["*"]
+  }
+}
+
+resource "aws_iam_role_policy" "vpc_ec2" {
+  name   = "${local.function_name_short}-ec2-policy"
+  role   = aws_iam_role.default_lambda_function.name
+  policy = data.aws_iam_policy_document.vpc_ec2.json
+}
+
+data "aws_iam_policy_document" "eventbridge_scheduler" {
+  version = "2012-10-17"
+  statement {
+    sid    = "EventBridgeSchedulerPermissions"
+    effect = "Allow"
+    actions = [
+      "events:PutRule",
+      "events:DeleteRule",
+      "events:DescribeRule",
+      "events:PutTargets",
+      "events:RemoveTargets",
+    ]
+    resources = ["*"]
+  }
+}
+
+resource "aws_iam_role_policy" "eventbridge_scheduler" {
+  name   = "${local.function_name_short}-scheduler-policy"
+  role   = aws_iam_role.default_lambda_function.name
+  policy = data.aws_iam_policy_document.eventbridge_scheduler.json
+}
+
+
 data "aws_iam_policy_document" "custom" {
   count = length(try(var.settings.iam.statements, [])) > 0 ? 1 : 0
   dynamic "statement" {
