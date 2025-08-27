@@ -1,4 +1,4 @@
-name: Terraform Transit Gateway Module
+name: Terraform AWS Module for Bastion Access Automation - Tronador DevOps Accelerator
 #logo: logo/logo.jpg
 
 license: "APACHE2"
@@ -8,23 +8,266 @@ copyrights:
     url: "https://cloudops.works"
     year: "2024"
 
-github_repo: cloudopsworks/terraform-module-aws-vpc-setup
+github_repo: cloudopsworks/terraform-module-aws-bastion-access-automation
 
 description: |-
-  VPC Module for setting up transit gateway with ResourceAccessMananger support.
+  Terraform module that automates secure, time-bound access to an AWS Bastion host.
+  It deploys a Python 3.12 AWS Lambda function, an SQS queue, EventBridge Scheduler rules
+  and CloudWatch logging to:
+    - Grant and revoke temporary access to the Bastion via Security Group and VPC Network ACL updates.
+    - Start the Bastion EC2 instance on demand when access is requested.
+    - Remove access automatically after a configurable lease period.
+    - Stop the Bastion instance on a configurable schedule.
+  Inputs are provided as a single structured "settings" object and organizational metadata
+  for consistent naming and tagging.
 
 # Introduction to the project
-#introduction: |-
-#  This is an introduction.
+introduction: |-
+  This module is part of the Tronador DevOps Accelerator. It delivers a turnkey automation
+  for managing Bastion access in AWS using a least-privilege, event-driven design:
+
+  - Users (or systems) request access by publishing a simple JSON message to an SQS queue
+    provisioned by the module. The Lambda function reads the message, validates it and
+    immediately grants access by updating a designated Security Group and Network ACL with
+    the requestor's IP address for the requested protocol (SSH or RDP).
+  - If the Bastion instance is stopped, the function starts it and waits until it is running.
+  - A one-off EventBridge schedule is created to revoke the access automatically after a
+    lease period (default 8 hours). Revocation removes the SG ingress rule and the temporary
+    NACL entry created for the request.
+  - A recurring EventBridge Scheduler rule triggers a graceful Bastion shutdown at a fixed
+    cron time you provide.
+
+  The module wires permissions (IAM) for EC2, SSM, CloudWatch Logs, EventBridge Scheduler,
+  SQS, and optionally Secrets Manager and KMS, and exposes key outputs for operations.
 
 # How to use this project
-#usage: |-
+usage: |-
+  # Inputs
+  #
+  # The module accepts two sets of inputs:
+  # 1) Organizational context for naming/tagging.
+  # 2) A consolidated settings object that configures behavior.
+  #
+  # Terraform variable schema (summarized):
+  org:
+    organization_name: "acme"
+    organization_unit: "platform"
+    environment_type: "nonprod"   # e.g., nonprod | prod | sandbox
+    environment_name: "dev"
+  spoke_def: "001"                 # 3-digit string ID used in names (e.g., 001)
+  is_hub: false
+  extra_tags: {}                    # map of additional tags
+
+  # Settings object (YAML for clarity). Required fields are marked as required.
+  settings:
+    access_security_group_id: "sg-xxxxxxxx"          # required - Security Group to grant/revoke access
+    access_acl_id: "acl-xxxxxxxx"                    # required - Network ACL to manage temporary rules
+    bastion_ssm_parameter: "/path/to/ssm/parameter"  # required - SSM Parameter containing Bastion instance ID
+
+    # Optional environment variables for the Lambda runtime
+    environment:
+      variables:
+        # Lease duration in hours for temporary access (defaults to "8" if not set)
+        ACCESS_LEASE_HOURS: "8"
+        # Add your own application variables as needed
+        # KEY: "value"
+
+    # Lambda runtime configuration (optional)
+    memory_size: 128          # default: 128 MB
+    timeout: 60               # default: 60 seconds
+
+    # CloudWatch logging configuration (optional)
+    logging:
+      log_format: JSON                     # JSON | TEXT (default JSON)
+      application_log_level: INFO          # INFO | DEBUG | ERROR (optional)
+      system_log_level: INFO               # INFO | DEBUG | ERROR (optional)
+    log_retention_days: 14                 # CloudWatch log retention (default: 14)
+
+    # Lambda description (optional)
+    description: "Bastion Access Control Lambda"
+
+    # Optional: allow Lambda to read/write specific Secrets Manager secrets
+    allowed_secrets:
+      - "arn:aws:secretsmanager:region:account-id:secret:mysecret-abc"
+
+    # Optional: allow KMS keys used with those secrets
+    allowed_kms:
+      - "arn:aws:kms:region:account-id:key/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+
+    # Optional: add custom IAM statements (advanced)
+    iam:
+      statements:
+        - effect: Allow
+          action:
+            - "ec2:Describe*"
+          resource:
+            - "*"
+
+    # Schedule for daily Bastion shutdown
+    bastion_shutdown:
+      cron: "0 18 * * ? *"               # required - EventBridge Scheduler cron expression (without outer cron())
+      timezone: "America/New_York"       # optional - IANA timezone
+
+  # Outputs
+  #
+  # - lambda_name: Name of the Lambda function
+  # - lambda_arn: ARN of the Lambda function
+  # - lambda_exec_role: Name of the Lambda execution role
+  # - lambda_exec_role_arn: ARN of the Lambda execution role
+  # - lambda_cloudwatch_log: CloudWatch Log Group name
+  # - lambda_cloudwatch_log_arn: CloudWatch Log Group ARN
 
 # Example usage
-#examples: |-
+examples: |-
+  # Terraform Module Example
+  # ------------------------------------------------------------
+  terraform {
+    required_version = ">= 1.3"
+    required_providers {
+      aws = {
+        source  = "hashicorp/aws"
+        version = "~> 6.0"
+      }
+    }
+  }
+
+  provider "aws" {
+    region = "us-east-1"
+  }
+
+  module "bastion_access_automation" {
+    source = "git::https://github.com/cloudopsworks/terraform-module-aws-bastion-access-automation.git"
+
+    org = {
+      organization_name = "acme"
+      organization_unit = "platform"
+      environment_type  = "nonprod"
+      environment_name  = "dev"
+    }
+
+    spoke_def = "001"
+
+    settings = {
+      access_security_group_id = "sg-0123456789abcdef0"
+      access_acl_id            = "acl-0123456789abcdef0"
+      bastion_ssm_parameter    = "/acme/platform/nonprod/bastion/instance-id"
+
+      environment = {
+        variables = {
+          ACCESS_LEASE_HOURS = "8"
+        }
+      }
+
+      memory_size = 128
+      timeout     = 60
+
+      logging = {
+        log_format            = "JSON"
+        application_log_level = "INFO"
+        system_log_level      = "INFO"
+      }
+
+      log_retention_days = 14
+
+      bastion_shutdown = {
+        cron     = "0 18 * * ? *"
+        timezone = "America/New_York"
+      }
+    }
+
+    extra_tags = {
+      application = "bastion-automation"
+      owner       = "platform-team"
+    }
+  }
+
+  # Terragrunt Example
+  # ------------------------------------------------------------
+  # terragrunt.hcl (in live repo)
+  terraform {
+    source = "git::https://github.com/cloudopsworks/terraform-module-aws-bastion-access-automation.git//?ref=main"
+  }
+
+  inputs = {
+    org = {
+      organization_name = "acme"
+      organization_unit = "platform"
+      environment_type  = "nonprod"
+      environment_name  = "dev"
+    }
+
+    spoke_def = "001"
+
+    settings = {
+      access_security_group_id = "sg-0123456789abcdef0"
+      access_acl_id            = "acl-0123456789abcdef0"
+      bastion_ssm_parameter    = "/acme/platform/nonprod/bastion/instance-id"
+
+      environment = {
+        variables = {
+          ACCESS_LEASE_HOURS = "8"
+        }
+      }
+
+      logging = {
+        log_format            = "JSON"
+        application_log_level = "INFO"
+        system_log_level      = "INFO"
+      }
+
+      bastion_shutdown = {
+        cron     = "0 18 * * ? *"
+        timezone = "America/New_York"
+      }
+    }
+
+    extra_tags = {
+      application = "bastion-automation"
+      owner       = "platform-team"
+    }
+  }
+
+  # SQS Message Example (AWS CLI)
+  # ------------------------------------------------------------
+  # Get the SQS queue URL stored by the module:
+  # aws ssm get-parameter \
+  #   --name /cloudopsworks/tronador/access-automation/sqs-queue \
+  #   --query Parameter.Value --output text
+  #
+  # Send an access request (SSH):
+  # aws sqs send-message \
+  #   --queue-url "$QUEUE_URL" \
+  #   --message-body '{"ip_address":"203.0.113.10","service":"ssh"}'
+  #
+  # For RDP, set service to "rdp".
 
 # How to get started quickly
-#quickstart: |-
+quickstart: |-
+  1. Prerequisites
+     - Terraform >= 1.3
+     - AWS provider ~> 6.0, Archive provider ~> 2.7
+     - Permissions to create IAM roles/policies, Lambda, SQS, CloudWatch Logs, EventBridge Scheduler, and SSM parameters.
+  2. Prepare infrastructure inputs
+     - Create or identify:
+       - Security Group ID used to grant bastion ingress (access_security_group_id).
+       - Network ACL ID where temporary allow rules can be added (access_acl_id).
+       - SSM Parameter that stores the Bastion EC2 instance ID (bastion_ssm_parameter).
+     - Define the daily shutdown cron expression and optional timezone.
+  3. Deploy the module
+     - Add the module block as shown in the example and run:
+       - terraform init
+       - terraform apply
+  4. Request access
+     - Retrieve the SQS queue URL from SSM:
+       - aws ssm get-parameter --name /cloudopsworks/tronador/access-automation/sqs-queue --query Parameter.Value --output text
+     - Send a message to request access (e.g., SSH from your IP) as shown in the SQS example.
+  5. Observe automation
+     - The Lambda will grant SG/NACL access, start Bastion if needed, and create a one-off schedule to revoke access after the lease period.
+     - Daily shutdown will stop the Bastion at the configured time.
+  6. Tuning and advanced options
+     - Adjust ACCESS_LEASE_HOURS via settings.environment.variables.
+     - Enable Secrets Manager/KMS access by listing allowed_secrets and allowed_kms.
+     - Add custom IAM statements under settings.iam.statements if required by your environment.
 
 include:
   - "docs/targets.md"
