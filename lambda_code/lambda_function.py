@@ -194,6 +194,7 @@ def process_access_request(context, message):
         schedule_expression = f"at({lease_end_time})"
         target = {
             'Arn': context.invoked_function_arn,
+            'RoleArn': os.environ['SCHEDULER_ROLE_ARN'],  # IAM Role ARN with permissions to invoke this Lambda
             'Input': json.dumps({
                 'detail-type': 'BastionAccessRemoval',
                 'detail': {
@@ -212,8 +213,7 @@ def process_access_request(context, message):
             FlexibleTimeWindow={'Mode': 'OFF'},
             Target=target,
             Description='Schedule to remove Bastion access after timeout',
-            ActionAfterCompletion='DELETE',
-            RoleArn=os.environ['SCHEDULER_ROLE_ARN']  # IAM Role ARN with permissions to invoke this Lambda
+            ActionAfterCompletion='DELETE'
         )
         logger.info(f"EventBridge Scheduler {schedule_name} created successfully.")
     except Exception as e:
