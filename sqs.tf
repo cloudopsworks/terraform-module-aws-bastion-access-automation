@@ -43,11 +43,3 @@ resource "aws_ssm_parameter" "sqs_queue_url" {
   value       = aws_sqs_queue.this.url
   tags        = local.all_tags
 }
-
-resource "aws_ssm_parameter" "sqs_response_queue_url" {
-  name        = "/cloudopsworks/tronador/access-automation/response-queue"
-  description = "Tronador Access Automation SQS Response Queue URL - ${local.system_name}"
-  type        = "String"
-  value       = aws_sqs_queue.response.url
-  tags        = local.all_tags
-}

@@ -27,10 +27,6 @@ locals {
       {
         name  = "SCHEDULER_ROLE_ARN"
         value = aws_iam_role.lambda_exec.arn
-      },
-      {
-        name  = "RESPONSE_QUEUE_SSM_PARAMETER"
-        value = aws_ssm_parameter.sqs_response_queue_url.name
       }
     ],
     try(var.settings.max_lease_hours, null) != null ? [
