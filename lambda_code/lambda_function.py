@@ -11,6 +11,7 @@ import boto3
 import os
 import json
 import logging
+from datetime import datetime, timedelta, timezone
 
 logger = logging.getLogger()
 logger.setLevel(os.environ.get('LOG_LEVEL', logging.INFO))
@@ -188,7 +189,9 @@ def process_access_request(context, message):
         scheduler = boto3.client('scheduler')
         lease_period = int(os.environ.get('ACCESS_LEASE_HOURS', '8'))
         schedule_name = f"remove-access-{ip_address.replace('.', '-')}-{service}"
-        schedule_expression = f"at({(boto3.utils.parse_timestamp(boto3.utils.get_service_module('scheduler').meta.events._unique_id).replace(tzinfo=None) + boto3.utils.timedelta(hours=lease_period)).strftime('%Y-%m-%dT%H:%M:%S')})"
+        # calculate lease end time from currenti time plus lease period in hours and convert to format required by EventBridge Scheduler
+        lease_end_time = (datetime.now(timezone.utc) + timedelta(hours=lease_period)).strftime('%Y-%m-%dT%H:%M:%S')
+        schedule_expression = f"at({lease_end_time})"
         target = {
             'Arn': context.lambda_function_arn,
             'Input': json.dumps({
