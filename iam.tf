@@ -120,6 +120,27 @@ resource "aws_iam_role_policy" "allowed_ssm_parameterstore" {
   policy = data.aws_iam_policy_document.allowed_ssm_parameterstore.json
 }
 
+data "aws_iam_policy_document" "allowed_sqs_queues" {
+  statement {
+    sid    = "ReadWriteSQSQueues"
+    effect = "Allow"
+    actions = [
+      "sqs:SendMessage",
+      "sqs:ReceiveMessage",
+      "sqs:DeleteMessage",
+    ]
+    resources = [
+      "arn:aws:sqs:${data.aws_region.current.id}:${data.aws_caller_identity.current.account_id}:${local.sqs_queue_name}"
+    ]
+  }
+}
+
+resource "aws_iam_role_policy" "allowed_sqs_queues" {
+  name   = "${local.function_name_short}-allow-sqs-queues-policy"
+  role   = aws_iam_role.default_lambda_function.id
+  policy = data.aws_iam_policy_document.allowed_sqs_queues.json
+}
+
 data "aws_iam_policy_document" "allowed_kms" {
   count = length(try(var.settings.allowed_kms, [])) > 0 ? 1 : 0
   statement {

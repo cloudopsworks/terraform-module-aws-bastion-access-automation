@@ -7,8 +7,11 @@
 #     Distributed Under Apache v2.0 License
 #
 
+locals {
+  sqs_queue_name = "${local.function_name}-sqs-queue"
+}
 resource "aws_sqs_queue" "this" {
-  name                    = "${local.function_name}-sqs-queue"
+  name                    = local.sqs_queue_name
   sqs_managed_sse_enabled = true
   tags                    = local.all_tags
 }
