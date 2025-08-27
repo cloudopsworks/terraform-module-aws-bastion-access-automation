@@ -38,14 +38,6 @@ output "sqs_request_queue_arn" {
   value = aws_sqs_queue.this.arn
 }
 
-output "sqs_response_queue_url" {
-  value = aws_sqs_queue.response.url
-}
-
-output "sqs_response_queue_arn" {
-  value = aws_sqs_queue.response.arn
-}
-
 output "ssm_parameter_sqs_request_queue" {
   value = aws_ssm_parameter.sqs_queue_url.name
 }

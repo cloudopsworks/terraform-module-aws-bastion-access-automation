@@ -18,13 +18,6 @@ resource "aws_sqs_queue" "this" {
   tags                       = local.all_tags
 }
 
-resource "aws_sqs_queue" "response" {
-  name                       = local.response_queue_name
-  sqs_managed_sse_enabled    = true
-  visibility_timeout_seconds = try(var.settings.timeout, 120) + 30
-  tags                       = local.all_tags
-}
-
 resource "aws_lambda_event_source_mapping" "this" {
   event_source_arn = aws_sqs_queue.this.arn
   function_name    = aws_lambda_function.this.arn
