@@ -189,6 +189,7 @@ data "aws_iam_policy_document" "vpc_ec2" {
       "ec2:DeleteNetworkAclEntry",
       "ec2:AuthorizeSecurityGroupIngress",
       "ec2:RevokeSecurityGroupIngress",
+      "ec2:DescribeInstanceStatus",
     ]
     resources = ["*"]
   }
