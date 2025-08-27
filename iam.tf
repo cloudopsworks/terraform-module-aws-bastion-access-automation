@@ -247,3 +247,23 @@ resource "aws_iam_role_policy" "custom" {
   role   = aws_iam_role.default_lambda_function.name
   policy = data.aws_iam_policy_document.custom[0].json
 }
+
+resource "aws_iam_role_policy" "pass_role" {
+  name = "${local.function_name_short}-pass-role-policy"
+  role = aws_iam_role.default_lambda_function.name
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "PassRole"
+        Effect = "Allow"
+        Action = [
+          "iam:PassRole"
+        ]
+        Resource = [
+          aws_iam_role.lambda_exec.arn
+        ]
+      }
+    ]
+  })
+}
