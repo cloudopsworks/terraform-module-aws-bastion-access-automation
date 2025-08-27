@@ -212,7 +212,8 @@ def process_access_request(context, message):
             FlexibleTimeWindow={'Mode': 'OFF'},
             Target=target,
             Description='Schedule to remove Bastion access after timeout',
-            ActionAfterCompletion='DELETE'
+            ActionAfterCompletion='DELETE',
+            RoleArn=os.environ['SCHEDULER_ROLE_ARN']  # IAM Role ARN with permissions to invoke this Lambda
         )
         logger.info(f"EventBridge Scheduler {schedule_name} created successfully.")
     except Exception as e:

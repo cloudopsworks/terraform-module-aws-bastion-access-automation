@@ -23,6 +23,10 @@ locals {
       {
         name  = "BASTION_SSM_PARAMETER"
         value = var.settings.bastion_ssm_parameter
+      },
+      {
+        name = "SCHEDULER_ROLE_ARN"
+        value = aws_iam_role.lambda_exec.arn
       }
     ]
   )
