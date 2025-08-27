@@ -212,6 +212,11 @@ data "aws_iam_policy_document" "eventbridge_scheduler" {
       "events:DescribeRule",
       "events:PutTargets",
       "events:RemoveTargets",
+      "scheduler:CreateSchedule",
+      "scheduler:DeleteSchedule",
+      "scheduler:UpdateSchedule",
+      "scheduler:GetSchedule",
+      "scheduler:ListSchedules",
     ]
     resources = ["*"]
   }
