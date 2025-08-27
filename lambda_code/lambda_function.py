@@ -237,6 +237,28 @@ def process_access_request(context, message: dict):
         logger.error(f"Error creating EventBridge Scheduler: {e}")
         return
 
+    # Respond to the user with Bastion Host details trough SQS Queue configured in ssm parameter
+    try:
+        response_queue_url = ssm.get_parameter(Name=os.environ['RESPONSE_QUEUE_SSM_PARAMETER'])['Parameter']['Value']
+        sqs = boto3.client('sqs')
+        bastion_ip_address = ec2.describe_instances(InstanceIds=[bastion_instance_id])['Reservations'][0]['Instances'][0]['PublicIpAddress']
+        message_body = {
+            'bastion_instance_id': bastion_instance_id,
+            'bastion_ip_address': bastion_ip_address,
+            'service': service,
+            'lease_period_hours': lease_request
+        }
+        logger.info(f"Sending response message to SQS queue {response_queue_url}")
+        sqs.send_message(
+            QueueUrl=response_queue_url,
+            MessageBody=json.dumps(message_body)
+        )
+        logger.info("Response message sent successfully.")
+    except Exception as e:
+        logger.error(f"Error sending response message to SQS: {e}")
+        return
+
+
 def process_eventbridge_event(context, event):
     """
     Process EventBridge events for access removal and Bastion Host shutdown.
