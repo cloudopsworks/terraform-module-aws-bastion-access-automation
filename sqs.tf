@@ -11,9 +11,10 @@ locals {
   sqs_queue_name = "${local.function_name}-sqs-queue"
 }
 resource "aws_sqs_queue" "this" {
-  name                    = local.sqs_queue_name
-  sqs_managed_sse_enabled = true
-  tags                    = local.all_tags
+  name                       = local.sqs_queue_name
+  sqs_managed_sse_enabled    = true
+  visibility_timeout_seconds = 90
+  tags                       = local.all_tags
 }
 
 resource "aws_lambda_event_source_mapping" "this" {
