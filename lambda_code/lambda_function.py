@@ -78,7 +78,7 @@ def _permission_exists(target_permission, existing_permissions):
     return False
 
 
-def process_access_request(context, message):
+def process_access_request(context, message: dict):
     """
     Process access request messages from SQS.
     message will contain following fields:
@@ -86,8 +86,13 @@ def process_access_request(context, message):
     - service: ssh or rdp
     bastion host information is configured in SSM Parameter Store
     """
+    lease_period = int(os.environ.get('ACCESS_MAX_LEASE_HOURS', '8'))
+
     ip_address = message.get('ip_address')
     service = message.get('service')
+    lease_request = message.get('lease_request', lease_period)
+    if lease_request > lease_period:
+        lease_request = lease_period
 
     if not ip_address or not service:
         logger.error("Invalid access request message format.")
@@ -198,10 +203,9 @@ def process_access_request(context, message):
     try:
         if not permanent_access:
             scheduler = boto3.client('scheduler')
-            lease_period = int(os.environ.get('ACCESS_LEASE_HOURS', '8'))
             schedule_name = f"remove-access-{ip_address.replace('.', '-')}-{service}"
             # calculate lease end time from currenti time plus lease period in hours and convert to format required by EventBridge Scheduler
-            lease_end_time = (datetime.now(timezone.utc) + timedelta(hours=lease_period)).strftime('%Y-%m-%dT%H:%M:%S')
+            lease_end_time = (datetime.now(timezone.utc) + timedelta(hours=lease_request)).strftime('%Y-%m-%dT%H:%M:%S')
             schedule_expression = f"at({lease_end_time})"
             target = {
                 'Arn': context.invoked_function_arn,
@@ -216,7 +220,7 @@ def process_access_request(context, message):
                     }
                 })
             }
-            logger.info(f"Creating EventBridge Scheduler {schedule_name} to remove access after ${lease_period} hours.")
+            logger.info(f"Creating EventBridge Scheduler {schedule_name} to remove access after ${lease_request} hours.")
             scheduler.create_schedule(
                 Name=schedule_name,
                 ScheduleExpression=schedule_expression,

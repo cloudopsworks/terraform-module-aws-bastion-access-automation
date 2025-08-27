@@ -10,7 +10,7 @@
 locals {
   function_name       = "access-automation-${local.system_name}"
   function_name_short = "access-automation-${local.system_name_short}"
-  variables = concat(try(var.settings.environment.variables, []),
+  variables = compact(concat(try(var.settings.environment.variables, []),
     [
       {
         name  = "ACCESS_SG_ID"
@@ -28,8 +28,14 @@ locals {
         name  = "SCHEDULER_ROLE_ARN"
         value = aws_iam_role.lambda_exec.arn
       }
-    ]
-  )
+    ],
+    try(var.settings.max_lease_hours, null) != null ? [
+      {
+        name  = "ACCESS_MAX_LEASE_HOURS"
+        value = var.settings.max_lease_hours
+      }
+    ] : []
+  ))
 }
 
 resource "archive_file" "lambda_code" {
