@@ -36,7 +36,11 @@ def lambda_handler(event, context):
             try:
                 message = json.loads(record['body'])
                 message_id = record.get('MessageId')
-                process_access_request(context, message, message_id)
+                action = message.get('action')
+                if action == 'request_access':
+                    process_access_request(context, message, message_id)
+                elif action == 'shutdown_bastion':
+                    shutdown_bastion(context, message)
             except Exception as e:
                 logger.error(f"Error processing record: {e}")
 
@@ -262,6 +266,102 @@ def process_access_request(context, message, message_id):
         return
 
 
+def _validate_remove_access_event(event_detail):
+    """Validate remove access event contains required fields."""
+    ip_address = event_detail.get('ip_address')
+    service = event_detail.get('service')
+    rule_number = event_detail.get('rule_number')
+
+    if not ip_address or not service or rule_number is None:
+        logger.error("Invalid remove access event format.")
+        return None
+
+    return {
+        'ip_address': ip_address,
+        'service': service,
+        'rule_number': rule_number
+    }
+
+
+def _handle_remove_access_event(ec2, event_detail):
+    """Handle access removal from security group and network ACL."""
+    event_data = _validate_remove_access_event(event_detail)
+    if not event_data:
+        return
+
+    ip_address = event_data['ip_address']
+    service = event_data['service']
+    rule_number = event_data['rule_number']
+
+    logger.info(f"Processing access removal for IP: {ip_address}, Service: {service}")
+
+    security_group_id = os.environ['ACCESS_SG_ID']
+    vpc_acl_id = os.environ['ACCESS_ACL_ID']
+
+    # Remove access from Security Group
+    try:
+        port = 22 if service.lower() == 'ssh' else 3389
+        ip_permission = {
+            'IpProtocol': 'tcp',
+            'FromPort': port,
+            'ToPort': port,
+            'IpRanges': [{'CidrIp': f'{ip_address}/32'}]
+        }
+        logger.info(f"Removing access rule from Security Group {security_group_id} for IP {ip_address}")
+        ec2.revoke_security_group_ingress(
+            GroupId=security_group_id,
+            IpPermissions=[ip_permission]
+        )
+    except Exception as e:
+        logger.error(f"Error removing access from Security Group: {e}")
+
+    # Remove access from Network ACL, if configured
+    try:
+        logger.info(f"Removing access rule from Network ACL {vpc_acl_id} for IP {ip_address}")
+        ec2.delete_network_acl_entry(
+            NetworkAclId=vpc_acl_id,
+            RuleNumber=rule_number,
+            Egress=False
+        )
+    except Exception as e:
+        logger.error(f"Error removing access from Network ACL: {e}")
+
+
+def _handle_shutdown_bastion_event(ssm, ec2):
+    """Handle bastion host shutdown event."""
+    logger.info("Processing Bastion Host shutdown event.")
+
+    # Retrieve Bastion Host details from SSM Parameter Store
+    try:
+        bastion_instance_id = ssm.get_parameter(Name=os.environ['BASTION_SSM_PARAMETER'])['Parameter']['Value']
+    except Exception as e:
+        logger.error(f"Error retrieving Bastion Host details from SSM: {e}")
+        return
+
+    # Stop Bastion Host if running
+    try:
+        instance_status = ec2.describe_instance_status(InstanceIds=[bastion_instance_id])
+        if instance_status['InstanceStatuses']:
+            logger.info(f"Stopping Bastion Host: {bastion_instance_id}")
+            ec2.stop_instances(InstanceIds=[bastion_instance_id])
+            waiter = ec2.get_waiter('instance_stopped')
+            waiter.wait(InstanceIds=[bastion_instance_id])
+            logger.info(f"Bastion Host {bastion_instance_id} is now stopped.")
+        else:
+            logger.info(f"Bastion Host {bastion_instance_id} is already stopped.")
+    except Exception as e:
+        logger.error(f"Error stopping Bastion Host: {e}")
+        return
+
+def shutdown_bastion(context, event):
+    """
+    Runs the shutdown bastion process, can be triggered manually or via EventBridge.
+    """
+    ssm = boto3.client('ssm')
+    ec2 = boto3.client('ec2')
+
+    _handle_shutdown_bastion_event(ssm, ec2)
+
 def process_eventbridge_event(context, event):
     """
     Process EventBridge events for access removal and Bastion Host shutdown.
@@ -274,68 +374,6 @@ def process_eventbridge_event(context, event):
     ec2 = boto3.client('ec2')
 
     if action == 'remove_access':
-        ip_address = event['detail'].get('ip_address')
-        service = event['detail'].get('service')
-        rule_number = event['detail'].get('rule_number')
-
-        if not ip_address or not service or rule_number is None:
-            logger.error("Invalid remove access event format.")
-            return
-
-        logger.info(f"Processing access removal for IP: {ip_address}, Service: {service}")
-
-        security_group_id = os.environ['ACCESS_SG_ID']
-        vpc_acl_id = os.environ['ACCESS_ACL_ID']
-
-        # Remove access from Security Group
-        try:
-            port = 22 if service.lower() == 'ssh' else 3389
-            ip_permission = {
-                'IpProtocol': 'tcp',
-                'FromPort': port,
-                'ToPort': port,
-                'IpRanges': [{'CidrIp': f'{ip_address}/32'}]
-            }
-            logger.info(f"Removing access rule from Security Group {security_group_id} for IP {ip_address}")
-            ec2.revoke_security_group_ingress(
-                GroupId=security_group_id,
-                IpPermissions=[ip_permission]
-            )
-        except Exception as e:
-            logger.error(f"Error removing access from Security Group: {e}")
-
-        # Remove access from Network ACL, if configured
-        try:
-            logger.info(f"Removing access rule from Network ACL {vpc_acl_id} for IP {ip_address}")
-            ec2.delete_network_acl_entry(
-                NetworkAclId=vpc_acl_id,
-                RuleNumber=rule_number,
-                Egress=False
-            )
-        except Exception as e:
-            logger.error(f"Error removing access from Network ACL: {e}")
-
-    if action == 'shutdown_bastion':
-        logger.info("Processing Bastion Host shutdown event.")
-
-        # Retrieve Bastion Host details from SSM Parameter Store
-        try:
-            bastion_instance_id = ssm.get_parameter(Name=os.environ['BASTION_SSM_PARAMETER'])['Parameter']['Value']
-        except Exception as e:
-            logger.error(f"Error retrieving Bastion Host details from SSM: {e}")
-            return
-
-        # Stop Bastion Host if running
-        try:
-            instance_status = ec2.describe_instance_status(InstanceIds=[bastion_instance_id])
-            if instance_status['InstanceStatuses']:
-                logger.info(f"Stopping Bastion Host: {bastion_instance_id}")
-                ec2.stop_instances(InstanceIds=[bastion_instance_id])
-                waiter = ec2.get_waiter('instance_stopped')
-                waiter.wait(InstanceIds=[bastion_instance_id])
-                logger.info(f"Bastion Host {bastion_instance_id} is now stopped.")
-            else:
-                logger.info(f"Bastion Host {bastion_instance_id} is already stopped.")
-        except Exception as e:
-            logger.error(f"Error stopping Bastion Host: {e}")
-            return
+        _handle_remove_access_event(ec2, event['detail'])
+    elif action == 'shutdown_bastion':
+        _handle_shutdown_bastion_event(ssm, ec2)
