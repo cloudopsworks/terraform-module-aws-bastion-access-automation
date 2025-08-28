@@ -250,7 +250,7 @@ def process_access_request(context, message, message_id):
             }
             schedule_is_new = True
             # Check if the schedule already exists to avoid duplicates, if it does, perform an update instead
-            existing_schedules = scheduler.list_schedules(FlexibleTimeWindow={'Mode': 'OFF'})
+            existing_schedules = scheduler.list_schedules(NamePrefix='remove-access-')
             for sch in existing_schedules.get('Schedules', []):
                 if sch['Name'] == schedule_name:
                     logger.info(f"EventBridge Scheduler {schedule_name} already exists, updating schedule.")
