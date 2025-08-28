@@ -248,17 +248,37 @@ def process_access_request(context, message, message_id):
                     }
                 })
             }
-            logger.info(f"Creating EventBridge Scheduler {schedule_name} to remove access after ${lease_request} hours.")
-            scheduler.create_schedule(
-                Name=schedule_name,
-                ScheduleExpression=schedule_expression,
-                State='ENABLED',
-                FlexibleTimeWindow={'Mode': 'OFF'},
-                Target=target,
-                Description='Schedule to remove Bastion access after timeout',
-                ActionAfterCompletion='DELETE'
-            )
-            logger.info(f"EventBridge Scheduler {schedule_name} created successfully.")
+            schedule_is_new = True
+            # Check if the schedule already exists to avoid duplicates, if it does, perform an update instead
+            existing_schedules = scheduler.list_schedules(FlexibleTimeWindow={'Mode': 'OFF'})
+            for sch in existing_schedules.get('Schedules', []):
+                if sch['Name'] == schedule_name:
+                    logger.info(f"EventBridge Scheduler {schedule_name} already exists, updating schedule.")
+                    scheduler.update_schedule(
+                        Name=schedule_name,
+                        ScheduleExpression=schedule_expression,
+                        State='ENABLED',
+                        FlexibleTimeWindow={'Mode': 'OFF'},
+                        Target=target,
+                        Description='Schedule to remove Bastion access after timeout',
+                        ActionAfterCompletion='DELETE'
+                    )
+                    logger.info(f"EventBridge Scheduler {schedule_name} updated successfully.")
+                    schedule_is_new = False
+                    break
+
+            if schedule_is_new:
+                logger.info(f"Creating EventBridge Scheduler {schedule_name} to remove access after ${lease_request} hours.")
+                scheduler.create_schedule(
+                    Name=schedule_name,
+                    ScheduleExpression=schedule_expression,
+                    State='ENABLED',
+                    FlexibleTimeWindow={'Mode': 'OFF'},
+                    Target=target,
+                    Description='Schedule to remove Bastion access after timeout',
+                    ActionAfterCompletion='DELETE'
+                )
+                logger.info(f"EventBridge Scheduler {schedule_name} created successfully.")
         else:
             logger.info("Permanent access detected, skipping EventBridge Scheduler creation.")
     except Exception as e:
