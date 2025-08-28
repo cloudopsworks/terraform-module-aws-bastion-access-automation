@@ -54,7 +54,7 @@ resource "aws_lambda_function" "this" {
   filename         = archive_file.lambda_code.output_path
   source_code_hash = archive_file.lambda_code.output_base64sha256
   memory_size      = try(var.settings.memory_size, 128)
-  timeout          = try(var.settings.timeout, 60)
+  timeout          = try(var.settings.timeout, 120)
   publish          = true
   environment {
     variables = {
