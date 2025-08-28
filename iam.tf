@@ -195,6 +195,7 @@ data "aws_iam_policy_document" "vpc_ec2" {
       "ec2:DescribeSecurityGroups",
       "ec2:DescribeNetworkAcls",
       "ec2:RunInstances",
+      "ec2:StopInstances",
       "ec2:CreateNetworkAclEntry",
       "ec2:DeleteNetworkAclEntry",
       "ec2:AuthorizeSecurityGroupIngress",
