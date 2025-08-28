@@ -192,15 +192,16 @@ data "aws_iam_policy_document" "vpc_ec2" {
     sid    = "EC2Permissions"
     effect = "Allow"
     actions = [
-      "ec2:DescribeSecurityGroups",
-      "ec2:DescribeNetworkAcls",
-      "ec2:RunInstances",
-      "ec2:StopInstances",
+      "ec2:AuthorizeSecurityGroupIngress",
       "ec2:CreateNetworkAclEntry",
       "ec2:DeleteNetworkAclEntry",
-      "ec2:AuthorizeSecurityGroupIngress",
-      "ec2:RevokeSecurityGroupIngress",
       "ec2:DescribeInstanceStatus",
+      "ec2:DescribeInstances",
+      "ec2:DescribeNetworkAcls",
+      "ec2:DescribeSecurityGroups",
+      "ec2:RevokeSecurityGroupIngress",
+      "ec2:RunInstances",
+      "ec2:StopInstances",
     ]
     resources = ["*"]
   }
