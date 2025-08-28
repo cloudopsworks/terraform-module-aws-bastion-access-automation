@@ -112,6 +112,16 @@ data "aws_iam_policy_document" "allowed_ssm_parameterstore" {
       data.aws_ssm_parameter.bastion_ssm_parameter.arn
     ]
   }
+  # support ssm describe_instance_information && instance_registered
+  statement {
+    sid = "ReadSSMEC2Registration"
+    actions = [
+      "ssm:DescribeInstanceInformation",
+    ]
+    resources = [
+      "*"
+    ]
+  }
 }
 
 resource "aws_iam_role_policy" "allowed_ssm_parameterstore" {
@@ -182,14 +192,17 @@ data "aws_iam_policy_document" "vpc_ec2" {
     sid    = "EC2Permissions"
     effect = "Allow"
     actions = [
-      "ec2:DescribeSecurityGroups",
-      "ec2:DescribeNetworkAcls",
-      "ec2:RunInstances",
+      "ec2:AuthorizeSecurityGroupIngress",
       "ec2:CreateNetworkAclEntry",
       "ec2:DeleteNetworkAclEntry",
-      "ec2:AuthorizeSecurityGroupIngress",
-      "ec2:RevokeSecurityGroupIngress",
       "ec2:DescribeInstanceStatus",
+      "ec2:DescribeInstances",
+      "ec2:DescribeNetworkAcls",
+      "ec2:DescribeSecurityGroups",
+      "ec2:RevokeSecurityGroupIngress",
+      "ec2:RunInstances",
+      "ec2:StartInstances",
+      "ec2:StopInstances",
     ]
     resources = ["*"]
   }

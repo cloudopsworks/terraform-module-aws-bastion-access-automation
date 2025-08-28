@@ -29,3 +29,19 @@ output "lambda_cloudwatch_log" {
 output "lambda_cloudwatch_log_arn" {
   value = aws_cloudwatch_log_group.logs.arn
 }
+
+output "sqs_request_queue_url" {
+  value = aws_sqs_queue.this.url
+}
+
+output "sqs_request_queue_arn" {
+  value = aws_sqs_queue.this.arn
+}
+
+output "ssm_parameter_sqs_request_queue" {
+  value = aws_ssm_parameter.sqs_queue_url.name
+}
+
+output "ssm_parameter_sqs_request_queue_arn" {
+  value = aws_ssm_parameter.sqs_queue_url.arn
+}
