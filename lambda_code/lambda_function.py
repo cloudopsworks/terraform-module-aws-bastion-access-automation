@@ -12,6 +12,7 @@ import os
 import json
 import logging
 from datetime import datetime, timedelta, timezone
+import time
 
 logger = logging.getLogger()
 logger.setLevel(os.environ.get('LOG_LEVEL', logging.INFO))
@@ -104,6 +105,8 @@ def process_access_request(context, message, message_id):
     # Retrieve Bastion Host details from SSM Parameter Store
     ssm = boto3.client('ssm')
     ec2 = boto3.client('ec2')
+    scheduler = boto3.client('scheduler')
+
     try:
         bastion_instance_id = ssm.get_parameter(Name=os.environ['BASTION_SSM_PARAMETER'])['Parameter']['Value']
     except Exception as e:
@@ -200,12 +203,18 @@ def process_access_request(context, message, message_id):
 
     # Wait until the instance is fully registered in SSM before proceeding, timeout after 50 seconds
     try:
-        ssm_client = boto3.client('ssm')
         logger.info(f"Waiting for Bastion Host {bastion_instance_id} to be registered in SSM.")
-        waiter = ssm_client.get_waiter('instance_registered')
-        waiter.wait(InstanceIds=[bastion_instance_id], WaiterConfig={'Delay': 5, 'MaxAttempts': 10})
-        ssm_instance_id = ssm_client.describe_instance_information(Filters=[{'Key': 'InstanceIds', 'Values': [bastion_instance_id]}])
-        if ssm_instance_id['InstanceInformationList']:
+        ssm_available = False
+        for i in range(1, 100):
+            response = ssm.describe_instance_information(
+                Filters=[{'Key': 'InstanceIds', 'Values': [bastion_instance_id]}])
+            if len(response["InstanceInformationList"]) > 0 and \
+                    response["InstanceInformationList"][0]["PingStatus"] == "Online" and \
+                    response["InstanceInformationList"][0]["InstanceId"] == bastion_instance_id:
+                ssm_available = True
+                break
+            time.sleep(5)
+        if ssm_available:
             logger.info(f"Bastion Host {bastion_instance_id} is now registered in SSM.")
         else:
             logger.warning(f"Bastion Host {bastion_instance_id} is not registered in SSM after waiting.")
@@ -218,7 +227,6 @@ def process_access_request(context, message, message_id):
     # the event will be ephemeral and auto delete after execution
     try:
         if not permanent_access:
-            scheduler = boto3.client('scheduler')
             schedule_name = f"remove-access-{ip_address.replace('.', '-')}-{service}"
             # calculate lease end time from currenti time plus lease period in hours and convert to format required by EventBridge Scheduler
             lease_end_time = (datetime.now(timezone.utc) + timedelta(hours=lease_request)).strftime('%Y-%m-%dT%H:%M:%S')
@@ -262,6 +270,9 @@ def process_eventbridge_event(context, event):
     """
     action = event.get('detail', {}).get('action')
 
+    ssm = boto3.client('ssm')
+    ec2 = boto3.client('ec2')
+
     if action == 'remove_access':
         ip_address = event['detail'].get('ip_address')
         service = event['detail'].get('service')
@@ -273,7 +284,6 @@ def process_eventbridge_event(context, event):
 
         logger.info(f"Processing access removal for IP: {ip_address}, Service: {service}")
 
-        ec2 = boto3.client('ec2')
         security_group_id = os.environ['ACCESS_SG_ID']
         vpc_acl_id = os.environ['ACCESS_ACL_ID']
 
@@ -309,8 +319,6 @@ def process_eventbridge_event(context, event):
         logger.info("Processing Bastion Host shutdown event.")
 
         # Retrieve Bastion Host details from SSM Parameter Store
-        ssm = boto3.client('ssm')
-        ec2 = boto3.client('ec2')
         try:
             bastion_instance_id = ssm.get_parameter(Name=os.environ['BASTION_SSM_PARAMETER'])['Parameter']['Value']
         except Exception as e:
