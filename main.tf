@@ -25,7 +25,7 @@ locals {
         value = var.settings.bastion_ssm_parameter
       },
       {
-        name = "SCHEDULER_TARGET_ARN"
+        name  = "SCHEDULER_TARGET_ARN"
         value = aws_sqs_queue.this.arn
       },
       {
