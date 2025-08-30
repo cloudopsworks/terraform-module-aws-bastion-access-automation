@@ -229,8 +229,8 @@ def process_access_request(context, message, message_id):
             lease_end_time = (datetime.now(timezone.utc) + timedelta(hours=lease_request)).strftime('%Y-%m-%dT%H:%M:%S')
             schedule_expression = f"at({lease_end_time})"
             target = {
-                'Arn': context.invoked_function_arn,
-                'RoleArn': os.environ['SCHEDULER_ROLE_ARN'],  # IAM Role ARN with permissions to invoke this Lambda
+                'Arn': os.environ['SCHEDULER_TARGET_ARN'],  # SQS Queue ARN to trigger the Lambda
+                'RoleArn': os.environ['SCHEDULER_ROLE_ARN'],  # SQS SendMessage Role ARN
                 'Input': json.dumps({
                         'action': 'remove_access',
                         'ip_address': ip_address,
