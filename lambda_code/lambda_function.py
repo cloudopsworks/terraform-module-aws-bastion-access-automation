@@ -232,14 +232,11 @@ def process_access_request(context, message, message_id):
                 'Arn': context.invoked_function_arn,
                 'RoleArn': os.environ['SCHEDULER_ROLE_ARN'],  # IAM Role ARN with permissions to invoke this Lambda
                 'Input': json.dumps({
-                    'detail-type': 'BastionAccessRemoval',
-                    'detail': {
                         'action': 'remove_access',
                         'ip_address': ip_address,
                         'service': service,
                         'rule_number': rule_number,
                         'sg_rule_id': sg_rule_id
-                    }
                 })
             }
             schedule_is_new = True
