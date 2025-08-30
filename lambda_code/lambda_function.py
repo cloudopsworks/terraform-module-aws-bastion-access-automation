@@ -128,7 +128,7 @@ def process_access_request(context, message, message_id):
                 GroupId=security_group_id,
                 IpPermissions=[ip_permission]
             )
-            sg_rule_id = sg_response['SecurityGroupRules'][0]['SecurityGroupRuleId'] if 'SecurityGroupRules' in sg_response and sg_response['SecurityGroupRules'] else None
+            sg_rule_id = sg_response['SecurityGroupRules'][0]['SecurityGroupRuleId'] if 'SecurityGroupRules' in sg_response else None
         else:
             logger.info(f"Access rule for IP {ip_address} already exists in Security Group {security_group_id}")
     except Exception as e:
@@ -324,7 +324,8 @@ def _handle_remove_access_event(ec2, event_detail):
         logger.info(f"Removing access rule from Security Group {security_group_id} for IP {ip_address}")
         ec2.revoke_security_group_ingress(
             GroupId=security_group_id,
-            SecurityGroupRuleIds=[sg_rule_id]
+            SecurityGroupRuleIds=[sg_rule_id] if sg_rule_id else [],
+            IpPermissions=[ip_permission] if not sg_rule_id else []
         )
     except Exception as e:
         logger.error(f"Error removing access from Security Group: {e}")
