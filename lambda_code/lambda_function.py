@@ -284,7 +284,7 @@ def _validate_remove_access_event(event_detail):
     rule_number = event_detail.get('rule_number', None)
     sg_rule_id = event_detail.get('sg_rule_id', None)
 
-    if not ip_address or not service or rule_number is None or sg_rule_id is None:
+    if not ip_address or not service or rule_number is None:
         logger.error("Invalid remove access event format.")
         return None
 
