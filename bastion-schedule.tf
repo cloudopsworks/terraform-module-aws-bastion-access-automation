@@ -16,8 +16,8 @@ resource "aws_scheduler_schedule" "this" {
   schedule_expression          = "cron(${var.settings.bastion_shutdown.cron})"
   schedule_expression_timezone = try(var.settings.bastion_shutdown.timezone, null)
   target {
-    arn      = aws_lambda_function.this.arn
-    role_arn = aws_iam_role.lambda_exec.arn
+    arn      = aws_sqs_queue.this.arn
+    role_arn = aws_iam_role.scheduler_sqs.arn
     input = jsonencode({
       action = "shutdown_bastion"
     })
