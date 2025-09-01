@@ -274,7 +274,7 @@ resource "aws_iam_role_policy" "pass_role" {
           "iam:PassRole"
         ]
         Resource = [
-          aws_iam_role.lambda_exec.arn
+          aws_iam_role.scheduler_sqs .arn
         ]
       }
     ]

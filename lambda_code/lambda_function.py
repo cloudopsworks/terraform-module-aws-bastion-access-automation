@@ -128,7 +128,7 @@ def process_access_request(context, message, message_id):
                 GroupId=security_group_id,
                 IpPermissions=[ip_permission]
             )
-            sg_rule_id = sg_response['SecurityGroupRules'][0]['SecurityGroupRuleId'] if 'SecurityGroupRules' in sg_response and sg_response['SecurityGroupRules'] else None
+            sg_rule_id = sg_response['SecurityGroupRules'][0]['SecurityGroupRuleId'] if 'SecurityGroupRules' in sg_response else None
         else:
             logger.info(f"Access rule for IP {ip_address} already exists in Security Group {security_group_id}")
     except Exception as e:
@@ -229,17 +229,14 @@ def process_access_request(context, message, message_id):
             lease_end_time = (datetime.now(timezone.utc) + timedelta(hours=lease_request)).strftime('%Y-%m-%dT%H:%M:%S')
             schedule_expression = f"at({lease_end_time})"
             target = {
-                'Arn': context.invoked_function_arn,
-                'RoleArn': os.environ['SCHEDULER_ROLE_ARN'],  # IAM Role ARN with permissions to invoke this Lambda
+                'Arn': os.environ['SCHEDULER_TARGET_ARN'],  # SQS Queue ARN to trigger the Lambda
+                'RoleArn': os.environ['SCHEDULER_ROLE_ARN'],  # SQS SendMessage Role ARN
                 'Input': json.dumps({
-                    'detail-type': 'BastionAccessRemoval',
-                    'detail': {
                         'action': 'remove_access',
                         'ip_address': ip_address,
                         'service': service,
                         'rule_number': rule_number,
                         'sg_rule_id': sg_rule_id
-                    }
                 })
             }
             schedule_is_new = True
@@ -287,7 +284,7 @@ def _validate_remove_access_event(event_detail):
     rule_number = event_detail.get('rule_number', None)
     sg_rule_id = event_detail.get('sg_rule_id', None)
 
-    if not ip_address or not service or rule_number is None or sg_rule_id is None:
+    if not ip_address or not service or rule_number is None:
         logger.error("Invalid remove access event format.")
         return None
 
@@ -327,7 +324,8 @@ def _handle_remove_access_event(ec2, event_detail):
         logger.info(f"Removing access rule from Security Group {security_group_id} for IP {ip_address}")
         ec2.revoke_security_group_ingress(
             GroupId=security_group_id,
-            SecurityGroupRuleIds=[sg_rule_id]
+            SecurityGroupRuleIds=[sg_rule_id] if sg_rule_id else [],
+            IpPermissions=[ip_permission] if not sg_rule_id else []
         )
     except Exception as e:
         logger.error(f"Error removing access from Security Group: {e}")
