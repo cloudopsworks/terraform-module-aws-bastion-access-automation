@@ -39,21 +39,12 @@ def lambda_handler(event, context):
                 action = message.get('action')
                 if action == 'request_access':
                     process_access_request(context, message, message_id)
+                elif action == 'remove_access':
+                    remove_acess(context, message)
                 elif action == 'shutdown_bastion':
                     shutdown_bastion(context, message)
             except Exception as e:
                 logger.error(f"Error processing record: {e}")
-
-    # Process EventBridge events
-    elif 'detail-type' in event:
-        try:
-            process_eventbridge_event(context, event)
-        except Exception as e:
-            logger.error(f"Error processing EventBridge event: {e}")
-
-    else:
-        logger.warning("Received unknown event format.")
-
     return {
         'statusCode': 200,
         'body': json.dumps('Processing complete')
@@ -120,6 +111,7 @@ def process_access_request(context, message, message_id):
     security_group_id = os.environ['ACCESS_SG_ID']
     vpc_acl_id = os.environ['ACCESS_ACL_ID']
 
+    sg_rule_id = None
     # Modify Security Group to allow access ensuring no duplicate rules
     try:
         existing_permissions = ec2.describe_security_groups(GroupIds=[security_group_id])['SecurityGroups'][0]['IpPermissions']
@@ -128,14 +120,15 @@ def process_access_request(context, message, message_id):
             'IpProtocol': 'tcp',
             'FromPort': port,
             'ToPort': port,
-            'IpRanges': [{'CidrIp': f'{ip_address}/32'}]
+            'IpRanges': [{'CidrIp': f'{ip_address}/32', 'Description': f'TEMP'}]
         }
         if not _permission_exists(ip_permission, existing_permissions):
             logger.info(f"Adding access rule to Security Group {security_group_id} for IP {ip_address}")
-            ec2.authorize_security_group_ingress(
+            sg_response = ec2.authorize_security_group_ingress(
                 GroupId=security_group_id,
                 IpPermissions=[ip_permission]
             )
+            sg_rule_id = sg_response['SecurityGroupRules'][0]['SecurityGroupRuleId'] if 'SecurityGroupRules' in sg_response else None
         else:
             logger.info(f"Access rule for IP {ip_address} already exists in Security Group {security_group_id}")
     except Exception as e:
@@ -236,16 +229,14 @@ def process_access_request(context, message, message_id):
             lease_end_time = (datetime.now(timezone.utc) + timedelta(hours=lease_request)).strftime('%Y-%m-%dT%H:%M:%S')
             schedule_expression = f"at({lease_end_time})"
             target = {
-                'Arn': context.invoked_function_arn,
-                'RoleArn': os.environ['SCHEDULER_ROLE_ARN'],  # IAM Role ARN with permissions to invoke this Lambda
+                'Arn': os.environ['SCHEDULER_TARGET_ARN'],  # SQS Queue ARN to trigger the Lambda
+                'RoleArn': os.environ['SCHEDULER_ROLE_ARN'],  # SQS SendMessage Role ARN
                 'Input': json.dumps({
-                    'detail-type': 'BastionAccessRemoval',
-                    'detail': {
                         'action': 'remove_access',
                         'ip_address': ip_address,
                         'service': service,
-                        'rule_number': rule_number
-                    }
+                        'rule_number': rule_number,
+                        'sg_rule_id': sg_rule_id
                 })
             }
             schedule_is_new = True
@@ -290,7 +281,8 @@ def _validate_remove_access_event(event_detail):
     """Validate remove access event contains required fields."""
     ip_address = event_detail.get('ip_address')
     service = event_detail.get('service')
-    rule_number = event_detail.get('rule_number')
+    rule_number = event_detail.get('rule_number', None)
+    sg_rule_id = event_detail.get('sg_rule_id', None)
 
     if not ip_address or not service or rule_number is None:
         logger.error("Invalid remove access event format.")
@@ -299,7 +291,8 @@ def _validate_remove_access_event(event_detail):
     return {
         'ip_address': ip_address,
         'service': service,
-        'rule_number': rule_number
+        'rule_number': rule_number,
+        'sg_rule_id': sg_rule_id
     }
 
 
@@ -312,6 +305,7 @@ def _handle_remove_access_event(ec2, event_detail):
     ip_address = event_data['ip_address']
     service = event_data['service']
     rule_number = event_data['rule_number']
+    sg_rule_id = event_data['sg_rule_id']
 
     logger.info(f"Processing access removal for IP: {ip_address}, Service: {service}")
 
@@ -330,7 +324,8 @@ def _handle_remove_access_event(ec2, event_detail):
         logger.info(f"Removing access rule from Security Group {security_group_id} for IP {ip_address}")
         ec2.revoke_security_group_ingress(
             GroupId=security_group_id,
-            IpPermissions=[ip_permission]
+            SecurityGroupRuleIds=[sg_rule_id] if sg_rule_id else [],
+            IpPermissions=[ip_permission] if not sg_rule_id else []
         )
     except Exception as e:
         logger.error(f"Error removing access from Security Group: {e}")
@@ -382,18 +377,10 @@ def shutdown_bastion(context, event):
 
     _handle_shutdown_bastion_event(ssm, ec2)
 
-def process_eventbridge_event(context, event):
+def remove_acess(context, message):
     """
-    Process EventBridge events for access removal and Bastion Host shutdown.
-    EventBridge events will contain an 'action' field to determine the type of event:
-    - action: 'remove_access' or 'shutdown_bastion'
+    Runs the remove access process, can be triggered manually or via EventBridge.
     """
-    action = event.get('detail', {}).get('action')
-
-    ssm = boto3.client('ssm')
     ec2 = boto3.client('ec2')
 
-    if action == 'remove_access':
-        _handle_remove_access_event(ec2, event['detail'])
-    elif action == 'shutdown_bastion':
-        _handle_shutdown_bastion_event(ssm, ec2)
+    _handle_remove_access_event(ec2, message)

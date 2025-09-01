@@ -21,20 +21,6 @@ data "aws_iam_policy_document" "lambda_assume_role" {
   }
 }
 
-data "aws_iam_policy_document" "lambda_exec" {
-  statement {
-    effect = "Allow"
-    actions = [
-      "lambda:InvokeFunction",
-      "lambda:InvokeAsync"
-    ]
-    resources = [
-      aws_lambda_function.this.arn,
-      "${aws_lambda_function.this.arn}:*"
-    ]
-  }
-}
-
 resource "aws_iam_role" "lambda_exec" {
   name               = "${local.function_name_short}-exec-role"
   path               = "/"
@@ -43,7 +29,51 @@ resource "aws_iam_role" "lambda_exec" {
 }
 
 resource "aws_iam_role_policy" "lambda_exec" {
-  name   = "${local.function_name_short}-exec-policy"
-  policy = data.aws_iam_policy_document.lambda_exec.json
-  role   = aws_iam_role.lambda_exec.id
+  name = "${local.function_name_short}-exec-policy"
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "AllowInvokeFunction"
+        Effect = "Allow"
+        Action = [
+          "lambda:InvokeFunction",
+          "lambda:InvokeAsync"
+        ]
+        Resource = [
+          aws_lambda_function.this.arn,
+          "${aws_lambda_function.this.arn}:*"
+        ]
+      }
+    ]
+  })
+  role = aws_iam_role.lambda_exec.id
+}
+
+resource "aws_iam_role" "scheduler_sqs" {
+  name               = "${local.function_name_short}-sched-role"
+  path               = "/"
+  assume_role_policy = data.aws_iam_policy_document.lambda_assume_role.json
+  tags               = local.all_tags
+}
+
+resource "aws_iam_role_policy" "scheduler_sqs" {
+  role = aws_iam_role.scheduler_sqs.id
+  name = "${local.function_name_short}-sched-sqs-policy"
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "AllowSQSToSendMessage"
+        Effect = "Allow"
+        Action = [
+          "sqs:SendMessage",
+          "sqs:SendMessageBatch",
+          "sqs:GetQueueAttributes",
+          "sqs:GetQueueUrl"
+        ]
+        Resource = aws_sqs_queue.this.arn
+      }
+    ]
+  })
 }

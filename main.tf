@@ -25,8 +25,12 @@ locals {
         value = var.settings.bastion_ssm_parameter
       },
       {
+        name  = "SCHEDULER_TARGET_ARN"
+        value = aws_sqs_queue.this.arn
+      },
+      {
         name  = "SCHEDULER_ROLE_ARN"
-        value = aws_iam_role.lambda_exec.arn
+        value = aws_iam_role.scheduler_sqs.arn
       }
     ],
     try(var.settings.max_lease_hours, null) != null ? [
